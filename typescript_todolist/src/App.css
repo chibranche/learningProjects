@@ -1,0 +1,27 @@
+li {
+    list-style-type: none;
+}
+
+.App {
+    text-align: center;
+}
+
+.flex-row {
+    display: flex;
+    flex-direction: row;
+}
+
+.flex-column {
+    display: flex;
+    flex-direction: column;
+}
+
+.todolist-container {
+    margin: auto;
+    width: 50%;
+    border: 3px solid black;
+}
+
+.todo-item-complete {
+    text-decoration: line-through;
+}
