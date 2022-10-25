@@ -1,8 +1,5 @@
-import React from "react";
-import { GreetProps } from "./greet.types";
+import { GreetProps } from './Greet.types'
 
-function Greet({ name = "World" }: GreetProps) {
-    return <div>Hello {name ? name : "Guest"}</div>;
+export const Greet = (props: GreetProps) => {
+  return <div>Hello {props.name ? props.name : 'Guest'}</div>
 }
-
-export default Greet;
