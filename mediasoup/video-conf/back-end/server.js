@@ -8,6 +8,7 @@ const mediasoup = require('mediasoup');
 const config = require('./config/config');
 const createWorkers = require("./utilities/createWorkers")
 const getWorker = require("./utilities/getWorker")
+const updateActiveSpeakers = require("./utilities/updateActiveSpeakers")
 const Client = require("./classes/Client")
 const Room = require("./classes/Room")
 
@@ -111,7 +112,7 @@ io.on('connect', socket => {
         ackCb(clientTransportParams)
     })
 
-    socket.on("connectTransport", async ({ type, dtlsParameters }, ackCb) => {
+    socket.on("connectTransport", async ({ type, dtlsParameters, audioPid }, ackCb) => {
         if (type === "producer") {
             try {
                 await client.upstreamTransport.connect({ dtlsParameters })
@@ -123,6 +124,18 @@ io.on('connect', socket => {
             }
         }
         else if (type === "consumer") {
+            // Find the right transport for this consumer
+            try {
+                const downstreamTransport = client.downstreamTransport.find(t => {
+                    return t.associatedAudioPid === audioPid
+                })
+                downstreamTransport.transport.connect({ dtlsParameters })
+                ackCb("success")
+            }
+            catch (e) {
+                console.log("ERROR: connectTransport consumer Error: ", e)
+                ackCb("error")
+            }
 
         }
     })
@@ -134,6 +147,10 @@ io.on('connect', socket => {
             const newProducer = await client.upstreamTransport.produce({ kind, rtpParameters })
             // Add the producer to this client object
             client.addProducer(kind, newProducer) //Store in client object for future use
+            // if this is an audiotrack, then this is a new possible speaker
+            if (kind === "audio") {
+                client.room.activeSpeakerList.push(newProducer.id)
+            }
             // Send back id for frontend which waits for it
             ackCb(newProducer.id)
         }
@@ -141,8 +158,31 @@ io.on('connect', socket => {
             console.log("err", err)
             ackCb(err)
         }
-        // TODO: if this is an audiotrack, then this is a new possible speaker
-        // TODO2: if the room is populated, then let the connected peers know about the new speaker
+
+        //if the room is populated, then let the connected peers know about the new speaker
+        const newTransportsByPeer = updateActiveSpeakers(client.room, io)
+        // newTransportsByPeer is an objec, each property is a socket.id that 
+        // has transports to make. They are in an array, by pid
+        for (const [socketId, audioPidsToCreate] of Object.entries(newTransportsByPeer)) {
+            // We haez the audioPidsToCreate this socket needs to create
+            // Map the video pids and the username
+            const videoPidsToCreate = audioPidsToCreate.map((aPid) => {
+                const producerClient = client.room.clients.find(c => c?.producer?.audio?.id === aPid)
+                return producerClient?.producer?.video?.id
+            })
+            const associatedUserNames = audioPidsToCreate.map((aPid) => {
+                const producerClient = client.room.clients.find(c => c?.producer?.audio?.id === aPid)
+                return producerClient?.userName
+            })
+
+            io.to(socketId).emit('newProducersToConsume', {
+                routerRtpCapabilities: client.room.router.rtpCapabilities,
+                audioPidsToCreate,
+                videoPidsToCreate,
+                associatedUserNames,
+                activeSpeakerList: client.room.activeSpeakerList.slice(0, 5),
+            })
+        }
     })
 
     socket.on("audioChange", typeOfChange => {
@@ -169,8 +209,7 @@ io.on('connect', socket => {
             }
             else {
                 // We can consume
-                console.log("TEST CLIENT", client)
-                const downstreamTransport = client.downstreamTransports.find(t => {
+                const downstreamTransport = client.downstreamTransport.find(t => {
                     if (kind === "audio") {
                         return t.associatedAudioPid === pid
                     }
@@ -204,6 +243,13 @@ io.on('connect', socket => {
         }
     })
 
+    socket.on('unpauseConsumer', async ({ pid, kind }, ackCb) => {
+        const consumerToResume = client.downstreamTransport.find(t => {
+            return t?.[kind].producerId === pid
+        })
+        await consumerToResume[kind].resume()
+        ackCb()
+    })
 
 })
 

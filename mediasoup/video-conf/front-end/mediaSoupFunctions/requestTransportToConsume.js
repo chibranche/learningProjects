@@ -1,7 +1,7 @@
 import createConsumer from "./createConsumer"
 import createConsumerTransport from "./createConsumerTransport"
 
-const requestTransportToConsume = (consumeData, socket, device) => {
+const requestTransportToConsume = (consumeData, socket, device, consumers) => {
     // How many transports ? One for each consumer . Or one that handles all consumers ?
     // - If we do one for every consumer
     // POSITIVE: more networking control
@@ -26,7 +26,7 @@ const requestTransportToConsume = (consumeData, socket, device) => {
         console.log("BUG HERE")
         console.log("consumerTransportParams", consumerTransportParams)
 
-        const consumerTransport = await createConsumerTransport(consumerTransportParams.clientTransportParams, device, socket, audioPid)
+        const consumerTransport = createConsumerTransport(consumerTransportParams.clientTransportParams, device, socket, audioPid)
         const [audioConsumer, videoConsumer] = await Promise.all([
             createConsumer(consumerTransport, audioPid, device, socket, 'audio', i), //i is index to know where to display on client
             createConsumer(consumerTransport, videoPid, device, socket, 'video', i)
@@ -34,6 +34,19 @@ const requestTransportToConsume = (consumeData, socket, device) => {
 
         console.log("audioConsumer", audioConsumer)
         console.log("videoConsumer", videoConsumer)
+        // Create a new MediaStream on the clientn with both tracks
+        const combinedStream = new MediaStream([audioConsumer?.track, videoConsumer?.track])
+        const remoteVideo = document.getElementById(`remote-video-${i}`)
+
+        remoteVideo.srcObject = combinedStream
+
+        consumers[audioPid] = {
+            combinedStream,
+            userName: consumeData.associatedUserNames[i],
+            consumerTransport,
+            audioConsumer,
+            videoConsumer
+        }
     })
 }
 
